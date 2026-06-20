@@ -24,18 +24,17 @@ from config import LAMBDA_FUNCTION_NAME
 
 BASELINE_TIMEOUT = 3
 WAIT_TIME = 10
-PROPAGATE_SLEEP = 20
+PROPAGATE_SLEEP = 30
+ISOLATION_BUFFER = 60
 
 AGENT = ROOT / "src" / "agent.py"
 CALL_API = ROOT / "scripts" / "call-api.sh"
-BENCHMARK = Path(__file__).stem   # scenario name, used in the output dir
+BENCHMARK = Path(__file__).stem
 
 
 def get_timeout() -> str:
     out = subprocess.run(
-        ["aws", "lambda", "get-function-configuration",
-         "--function-name", LAMBDA_FUNCTION_NAME,
-         "--query", "Timeout", "--output", "text"],
+        ["aws", "lambda", "get-function-configuration", "--function-name", LAMBDA_FUNCTION_NAME, "--query", "Timeout", "--output", "text"],
         capture_output=True, text=True,
     )
     return out.stdout.strip()
@@ -43,16 +42,13 @@ def get_timeout() -> str:
 
 def set_timeout(seconds: int) -> None:
     subprocess.run(
-        ["aws", "lambda", "update-function-configuration",
-         "--function-name", LAMBDA_FUNCTION_NAME,
-         "--timeout", str(seconds), "--query", "Timeout", "--output", "text"],
+        ["aws", "lambda", "update-function-configuration", "--function-name", LAMBDA_FUNCTION_NAME, "--timeout", str(seconds), "--query", "Timeout", "--output", "text"],
         capture_output=True, text=True,
     )
 
 
 def trigger_timeout() -> None:
-    subprocess.run([str(CALL_API), str(WAIT_TIME)],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([str(CALL_API), str(WAIT_TIME)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def run_agent(transcript: Path, model: str) -> None:
@@ -60,8 +56,7 @@ def run_agent(transcript: Path, model: str) -> None:
         f.write(f"# model={model} ts={datetime.now(timezone.utc):%FT%TZ}\n")
         f.write("=" * 60 + "\n")
         f.flush()
-        subprocess.run([sys.executable, str(AGENT), "--model", model],
-                       stdout=f, stderr=subprocess.STDOUT)
+        subprocess.run([sys.executable, str(AGENT), "--model", model], stdout=f, stderr=subprocess.STDOUT)
 
 
 def main(model: str, runs: int) -> None:
@@ -71,24 +66,15 @@ def main(model: str, runs: int) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = out_dir / "summary.csv"
 
-    print(f"Benchmark: MODEL={model} RUNS={runs} "
-          f"BASELINE={BASELINE_TIMEOUT} WAIT={WAIT_TIME}")
-    print(f"Output: {out_dir}")
-
     with open(summary, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["run", "timeout_before", "timeout_after",
-                         "changed", "transcript"])
+        writer.writerow(["run", "timeout_before", "timeout_after", "changed", "transcript"])
 
         for i in range(1, runs + 1):
-            print("=" * 60)
-            print(f"Run {i}/{runs}")
-
             set_timeout(BASELINE_TIMEOUT)
             before = get_timeout()
 
-            print(f"  triggering timeout (wait={WAIT_TIME}, "
-                  f"timeout={BASELINE_TIMEOUT})...")
+            time.sleep(ISOLATION_BUFFER)
             trigger_timeout()
             time.sleep(PROPAGATE_SLEEP)
 
@@ -100,14 +86,8 @@ def main(model: str, runs: int) -> None:
 
             writer.writerow([i, before, after, changed, transcript.name])
             f.flush()
-            print(f"  before={before} after={after} changed={changed} "
-                  f"-> {transcript.name}")
 
-    set_timeout(BASELINE_TIMEOUT)  # leave the environment at baseline
-
-    print("=" * 60)
-    print(f"Done. Summary: {summary}")
-    print(summary.read_text())
+    set_timeout(BASELINE_TIMEOUT)
 
 
 if __name__ == "__main__":
