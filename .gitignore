@@ -34,3 +34,6 @@ htmlcov/
 
 # ベンチマーク実験の出力
 results/
+
+# スクリプト
+scripts/run-benchmark.sh
