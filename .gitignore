@@ -33,4 +33,4 @@ htmlcov/
 *.log
 
 # ベンチマーク実験の出力
-logs/
+results/

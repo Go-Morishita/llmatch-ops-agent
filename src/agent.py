@@ -1,6 +1,8 @@
-# Server log monitoring agent
+# Server operations agent
 
+import argparse
 import subprocess
+from functools import partial
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
@@ -12,7 +14,6 @@ from config import (
     STACK_NAME,
     FUNCTION_NAME,
     START_TIME,
-    MODEL_NAME,
     MAX_TOOL_CALLS,
     SYSTEM_PROMPT,
 )
@@ -49,9 +50,9 @@ def fetch_logs(state: MonitorState) -> MonitorState:
     ]}
 
 
-def agent(state: MonitorState) -> MonitorState:
+def agent(state: MonitorState, model: str) -> MonitorState:
     """The LLM analyzes the logs and decides on tool calls if needed."""
-    llm = ChatOllama(model=MODEL_NAME).bind_tools(TOOLS)
+    llm = ChatOllama(model=model).bind_tools(TOOLS)
     response = llm.invoke(state["messages"])
     if response.tool_calls:
         for call in response.tool_calls:
@@ -100,10 +101,10 @@ def should_continue(state: MonitorState) -> str:
 
 # ============ Graph construction ============
 
-def build_graph():
+def build_graph(model: str):
     graph = StateGraph(MonitorState)
     graph.add_node("fetch_logs", fetch_logs)
-    graph.add_node("agent", agent)
+    graph.add_node("agent", partial(agent, model=model))
     graph.add_node("tools", call_tools)
     graph.add_node("report", report)
 
@@ -116,5 +117,8 @@ def build_graph():
 
 
 if __name__ == "__main__":
-    app = build_graph()
+    parser = argparse.ArgumentParser(description="Run the server operations agent.")
+    parser.add_argument("--model", required=True, help="ollama model to use")
+    args = parser.parse_args()
+    app = build_graph(model=args.model)
     app.invoke({"messages": []})
